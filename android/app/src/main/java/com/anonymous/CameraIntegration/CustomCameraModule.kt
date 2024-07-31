@@ -12,6 +12,8 @@ import com.facebook.react.module.annotations.ReactModule
 import java.io.ByteArrayOutputStream
 import android.content.pm.PackageManager
 import android.widget.Toast
+import android.util.Log
+import android.net.Uri
 
 @ReactModule(name = CustomCameraModule.NAME)
 class CustomCameraModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext), ActivityEventListener {
@@ -56,22 +58,9 @@ class CustomCameraModule(reactContext: ReactApplicationContext) : ReactContextBa
     private fun launchCamera() {
         val currentActivity = currentActivity
         if (currentActivity != null) {
-            // this is not prefect way to control camera flash light cos different device got different intent key.
-            // better way is using thrid party lib like cameraX, they provide api to control flash mode
-            // flash mode toggle is not tested.
-            val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-            if (isFlashOn) {
-                cameraIntent.putExtra("android.intent.extras.FLASH_MODE", "torch")
-                cameraIntent.putExtra("xiaomi.intent.extra.FLASH_MODE", "torch")
-                cameraIntent.putExtra("SamsungCameraAppKey_FLASH_MODE", "torch")
-                Toast.makeText(currentActivity, "flash mode on", Toast.LENGTH_SHORT).show()
-            } else {
-                cameraIntent.putExtra("android.intent.extras.FLASH_MODE", "off")
-                cameraIntent.putExtra("xiaomi.intent.extra.FLASH_MODE", "off")
-                cameraIntent.putExtra("SamsungCameraAppKey_FLASH_MODE", "off")
-                Toast.makeText(currentActivity, "flash mode off", Toast.LENGTH_SHORT).show()
-            }
-            currentActivity.startActivityForResult(cameraIntent, CAMERA_REQUEST)
+            val intent = Intent(currentActivity, CameraActivity::class.java)
+            intent.putExtra("isFlashOn", isFlashOn)
+            currentActivity.startActivityForResult(intent, CAMERA_REQUEST)
         }
     }
 
@@ -82,12 +71,25 @@ class CustomCameraModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == CAMERA_REQUEST && resultCode == Activity.RESULT_OK) {
-            val photo = data?.extras?.get("data") as Bitmap
-            val byteArrayOutputStream = ByteArrayOutputStream()
-            photo.compress(Bitmap.CompressFormat.JPEG, 100, byteArrayOutputStream)
-            val encodedImage = Base64.encodeToString(byteArrayOutputStream.toByteArray(), Base64.DEFAULT)
-            cameraPromise?.resolve(encodedImage)
-        } else {
+            Log.d("CameraModule", "receive data")
+            val uriString = data?.getStringExtra("imageUri")
+            if (uriString != null && currentActivity != null) {
+                var savedUri = Uri.parse(uriString)
+                val bitmap = MediaStore.Images.Media.getBitmap(currentActivity!!.contentResolver, savedUri)
+                val byteArrayOutputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, byteArrayOutputStream)
+                val encodedImage = Base64.encodeToString(byteArrayOutputStream.toByteArray(), Base64.DEFAULT)
+                cameraPromise?.resolve(encodedImage)
+            } else {
+                cameraPromise?.reject("uri is empty")
+            }
+        } else if (requestCode != CAMERA_REQUEST) {
+            cameraPromise?.reject("request code not camera")
+        }
+        else if (resultCode != Activity.RESULT_OK) {
+            cameraPromise?.reject("Result not ok")
+        }
+        else {
             cameraPromise?.reject("Camera error try to run on physical device")
         }
     }
